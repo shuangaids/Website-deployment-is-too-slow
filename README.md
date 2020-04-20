@@ -112,7 +112,6 @@ added 1154 packages in 60s
 
 $ npm ci
 added 1154 packages in 35s
-总结
 
 最后总结一下如何减少 npm install 的时间，都是很简单的设置，一分钟搞定
 
