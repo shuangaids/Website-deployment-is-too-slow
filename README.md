@@ -122,3 +122,117 @@ CI=true，npm 会在此环境变量下自动优化
 使用 npm ci 代替 npm i，既提升速度又保障应用安全性
 
 （问题1:加了--production不下载开发依赖怎么打包？合理的前端项目应该将打好包的文件也上传 git，而不是在生产环境再打包。问题2:package-lock.json？yarn.lock会把私有地址寄下来造成信息泄露，记得别传到github上啊）
+
+扩展：团队开发代码约束
+
+1:ESLint 与约束
+$ npm install eslint --save-dev 
+
+规则集需要统一集中配置，ESLint 会默认读取配置文件 .eslintrc 来解析，而规则集在 rules 中进行配置：
+
+{
+  "rules": {
+    "semi": ["error", "always"],
+    "quotes": ["error", "double"]
+  }
+}
+
+2:airbnb
+
+airbnb javascript style我们仅仅需要使用 extend 配置项去继承一些优秀的开源的代码规范，并使用 rules 做一些自己团队的规则补充。
+
+{
+  "extend": ["airbnb-base"],
+  "rules": {
+    "semi": ["error", "never"]
+  }
+}
+
+3:开发环境，生产环境与警告
+
+开发环境对于开发而言重要的是什么？
+是开发体验。
+一个良好的编码规范会带来解放强迫症的舒适感，但过于严格的代码风格有时也会使人烦躁。试举两个小例子，有可能是在你写代码时出现过的场景：
+禁止掉 console.log，避免在生产环境输出多余的东西。但偏偏在测试环境经常需要调试，但是如果仅仅设为警告的话，警告又会被忽视，失去意义。
+特别是当设置了规则 no-unused-vars 时。如果仅仅是为了在开发时调试，却因为无法通过 ESlint 规则校验无法方便调试。
+这是一个约束与自由的权衡，ESLint 在提供强有力约束时自然会牺牲一些开发上的便利性。中庸，儒家思想讲究中庸，此时可以在权衡下选择一个中庸的方案：
+把 ESLint 的所有影响调试的规则校验都设置为 Warn，那你又问了警告往往不是会被忽略吗？是这样子的，所以需要在 CI 中设置环境变量 CI=true，如此在 CI 中即使有警告也无法交付。CI 指持续集成，在本篇文章后边也会接着提到，另外，在本系列文章中也会重点讲解 CI，欢迎持续关注。
+如在 create-react-app 中的大部分规则都是设置为 Warn
+
+但是，如果你使用了 webpack，并且结合 eslint-loader，那解决方案就更加简单了：使用 emitWarning: true，在测试环境把所有 Error 都当做 Warn，这样避免了修改 ESLint 规则，webpack 的配置如下
+{
+  test: /\.(js|mjs|jsx|ts|tsx)$/,
+  enforce: 'pre',
+  use: [
+    {
+      options: {
+        cache: true,
+        emitWarning: true,
+      },
+      loader: require.resolve('eslint-loader'),
+    },
+  ]
+}
+所以有两种权衡开发体验与编程规范的方式：
+把 ESLint 的 rule 设置为 Warn，并在持续集成中配置环境变量 CI=true。
+结合 webpack 与 eslint-loader，根据当前环境的环境变量配置 emitWarning。
+
+第一层约束: IDE
+
+当不符合代码规范的第一时间，我们就要感知到它，及时反馈，快速纠正，比直到最后积攒了一大堆错误要高效很多。
+这里以 VS Code 作为示例，它只需要安装一个插件：eslint，便可以做到智能提示
+
+第二层约束: Git Hooks
+
+git 自身包含许多 hooks，在 commit，push 等 git 事件前后触发执行。与 pre-commit hook 结合可以帮助校验 Lint，如果非通过代码规范则不允许提交。
+husky 是一个使 git hooks 变得更简单的工具，只需要配置几行 package.json 就可以愉快的开始工作。
+husky 的原理是什么？
+// package.json
+{
+  "scripts": {
+    "lint": "eslint . --cache"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm lint",
+    }
+  }
+}
+或者结合 lint-staged[4] 调用校验规则
+{
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
+  "lint-staged": {
+    "*.js|{lib,setup,bin,hot,tooling,schemas}/**/*.js|test/*.js|{test,examples}/**/webpack.config.js}": [
+      "eslint --cache"
+    ],
+    "*.{ts,json,yml,yaml,md}|examples/*.md": [
+      "prettier --check"
+    ],
+    "*.md|{.github,benchmark,bin,examples,hot,lib,schemas,setup,tooling}/**/*.{md,yml,yaml,js,json}": [
+      "cspell"
+    ]
+  }
+}
+不过做前端的都明白，客户端校验是不可信的，通过一条命令即可绕过 git hooks。
+$ git commit -n
+
+ 第三层约束: CI
+ 
+ git hooks 可以绕过，但 CI(持续集成) 是绝对绕不过的，因为它在服务端校验。使用 gitlab CI 做持续集成，配置文件 .gitlab-ci.yaml 如下所示
+lint:
+  stage:lint
+  only:
+    -/^feature\/.*$/
+  script:
+    -npmlint
+（总结）
+团队中代码规范统一是极有必要的
+使用成熟的 eslint config，并做细节修改
+设置部分 eslint rule 为警告，保障开发体验，并且在 pre-commit 与 CI 中把警告视为不通过，保证严格的代码规范
+可以在 IDE (vscode)，git hooks，CI 中添加规范校验拦截
+可以使用 husky 与 lint-staged 很方便地做关于 lint 的 git hooks
+git hooks 的规范校验可以通过 git commit -n 跳过，需要在 CI 层继续加强校验
